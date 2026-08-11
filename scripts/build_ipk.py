@@ -30,63 +30,48 @@ def payload_files() -> list[tuple[Path, str, int]]:
     return files
 
 
-def tar_gz(entries: list[tuple[str, bytes, int]]) -> bytes:
+def tar_gz(entries: list[tuple[str, bytes | None, int]]) -> bytes:
     compressed = io.BytesIO()
     with gzip.GzipFile(fileobj=compressed, mode="wb", compresslevel=9, mtime=EPOCH) as gz:
         with tarfile.open(fileobj=gz, mode="w", format=tarfile.USTAR_FORMAT) as archive:
             for name, content, mode in entries:
                 info = tarfile.TarInfo(name=name)
-                info.size = len(content)
                 info.mode = mode
                 info.mtime = EPOCH
                 info.uid = 0
                 info.gid = 0
                 info.uname = "root"
                 info.gname = "root"
-                archive.addfile(info, io.BytesIO(content))
+                if content is None:
+                    info.type = tarfile.DIRTYPE
+                    info.size = 0
+                    archive.addfile(info)
+                else:
+                    info.size = len(content)
+                    archive.addfile(info, io.BytesIO(content))
     return compressed.getvalue()
-
-
-def ar_member(name: str, content: bytes, mode: int = 0o100644) -> bytes:
-    if len(name) > 15:
-        raise ValueError(f"ar member name is too long: {name}")
-    header = (
-        f"{name + '/':<16}"
-        f"{EPOCH:<12}"
-        f"{0:<6}"
-        f"{0:<6}"
-        f"{mode:<8o}"
-        f"{len(content):<10}`\n"
-    ).encode("ascii")
-    if len(header) != 60:
-        raise AssertionError(f"invalid ar header length for {name}: {len(header)}")
-    return header + content + (b"\n" if len(content) % 2 else b"")
-
-
-def parse_ar(blob: bytes) -> dict[str, bytes]:
-    if not blob.startswith(b"!<arch>\n"):
-        raise ValueError("missing ar signature")
-    offset = 8
-    members: dict[str, bytes] = {}
-    while offset < len(blob):
-        header = blob[offset : offset + 60]
-        if len(header) != 60 or header[58:60] != b"`\n":
-            raise ValueError("invalid ar member header")
-        name = header[:16].decode("ascii").strip().rstrip("/")
-        size = int(header[48:58].decode("ascii").strip())
-        offset += 60
-        members[name] = blob[offset : offset + size]
-        offset += size + (size % 2)
-    return members
 
 
 def build(version: str, output_dir: Path) -> Path:
     payload = payload_files()
-    data_entries = [
-        (target, source.read_bytes(), mode) for source, target, mode in payload
+    data_file_entries = [
+        (f"./{target}", source.read_bytes(), mode) for source, target, mode in payload
     ]
+    data_directories: set[str] = set()
+    for _, target, _ in payload:
+        parts = target.split("/")[:-1]
+        for depth in range(1, len(parts) + 1):
+            data_directories.add(f"./{'/'.join(parts[:depth])}")
+    data_directory_entries = [
+        (directory, None, 0o755)
+        for directory in sorted(data_directories, key=lambda item: (item.count("/"), item))
+    ]
+    data_entries = data_directory_entries + data_file_entries
     data_archive = tar_gz(data_entries)
-    installed_size = max(1, (sum(len(content) for _, content, _ in data_entries) + 1023) // 1024)
+    installed_size = max(
+        1,
+        (sum(len(content) for _, content, _ in data_file_entries) + 1023) // 1024,
+    )
 
     control = (
         f"Package: {PACKAGE}\n"
@@ -100,42 +85,52 @@ def build(version: str, output_dir: Path) -> Path:
         "Description: Modern LuCI SMS viewer with CNMI storage-mode health check.\n"
     ).encode("utf-8")
     control_entries = [
-        ("control", control, 0o644),
-        ("conffiles", b"/etc/config/istoreos_sms\n", 0o644),
+        ("./control", control, 0o644),
+        ("./conffiles", b"/etc/config/istoreos_sms\n", 0o644),
     ]
     for name in ("postinst", "prerm", "postrm"):
         control_entries.append(
-            (name, (ROOT / "packaging" / "ipk" / name).read_bytes(), 0o755)
+            (f"./{name}", (ROOT / "packaging" / "ipk" / name).read_bytes(), 0o755)
         )
     control_archive = tar_gz(control_entries)
 
-    blob = b"!<arch>\n"
-    blob += ar_member("debian-binary", b"2.0\n")
-    blob += ar_member("control.tar.gz", control_archive)
-    blob += ar_member("data.tar.gz", data_archive)
+    # OpenWrt 24.10's opkg expects the historical ipkg format: a gzip-compressed
+    # tar archive. Debian's ar-based .deb container has similar inner members,
+    # but opkg rejects it as a malformed package.
+    blob = tar_gz([
+        ("./debian-binary", b"2.0\n", 0o644),
+        ("./data.tar.gz", data_archive, 0o644),
+        ("./control.tar.gz", control_archive, 0o644),
+    ])
 
-    members = parse_ar(blob)
-    if list(members) != ["debian-binary", "control.tar.gz", "data.tar.gz"]:
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
+        members = {item.name: archive.extractfile(item).read() for item in archive.getmembers()}
+    expected_members = ["./debian-binary", "./data.tar.gz", "./control.tar.gz"]
+    if list(members) != expected_members:
         raise AssertionError(f"unexpected ipk members: {list(members)}")
-    if members["debian-binary"] != b"2.0\n":
+    if members["./debian-binary"] != b"2.0\n":
         raise AssertionError("invalid debian-binary payload")
 
-    with tarfile.open(fileobj=io.BytesIO(members["control.tar.gz"]), mode="r:gz") as archive:
+    with tarfile.open(fileobj=io.BytesIO(members["./control.tar.gz"]), mode="r:gz") as archive:
         control_members = {item.name: item for item in archive.getmembers()}
-    if set(control_members) != {"control", "conffiles", "postinst", "prerm", "postrm"}:
+    if set(control_members) != {"./control", "./conffiles", "./postinst", "./prerm", "./postrm"}:
         raise AssertionError(f"unexpected control members: {sorted(control_members)}")
     for name in ("postinst", "prerm", "postrm"):
-        if control_members[name].mode != 0o755:
+        if control_members[f"./{name}"].mode != 0o755:
             raise AssertionError(f"{name} is not executable")
 
-    with tarfile.open(fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz") as archive:
+    with tarfile.open(fileobj=io.BytesIO(members["./data.tar.gz"]), mode="r:gz") as archive:
         data_members = {item.name: item for item in archive.getmembers()}
-    expected_data = {target for _, target, _ in payload}
+    expected_data = data_directories | {f"./{target}" for _, target, _ in payload}
     if set(data_members) != expected_data:
         raise AssertionError("data archive does not match the repository payload")
+    for directory in data_directories:
+        if not data_members[directory].isdir() or data_members[directory].mode != 0o755:
+            raise AssertionError(f"invalid directory entry: {directory}")
     for _, target, mode in payload:
-        if data_members[target].mode != mode:
-            raise AssertionError(f"unexpected mode for {target}: {data_members[target].mode:o}")
+        member_name = f"./{target}"
+        if data_members[member_name].mode != mode:
+            raise AssertionError(f"unexpected mode for {target}: {data_members[member_name].mode:o}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"{PACKAGE}_{version}_all.ipk"
