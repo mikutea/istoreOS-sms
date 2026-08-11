@@ -1,121 +1,159 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-</head>
+# iStoreOS-SMS
 
-<body>
+面向 iStoreOS / OpenWrt 的轻量短信查看器。项目使用现代 LuCI JavaScript
+页面调用 `sms_tool`，可以和
+[`4IceG/luci-app-sms-tool-js`](https://github.com/4IceG/luci-app-sms-tool-js)
+并存，不覆盖它的菜单、配置或文件。
 
-  <h1>iStoreOS-SMS</h1>
+## 这次修复了什么
 
-  <div class="badges">
-    <img src="https://img.shields.io/github/stars/mikutea/istoreOS-sms" alt="GitHub stars">
-    <img src="https://img.shields.io/github/license/mikutea/istoreOS-sms?cacheSeconds=0" alt="License">
-  </div>
+### 收到短信但 LuCI 看不到
 
-  <p>
-    <strong>轻量级 iStoreOS / OpenWrt 短信插件</strong><br>
-    用于在 <strong>LuCI Web 界面</strong>中读取并展示来自 USB 4G / 5G 调制解调器的 SMS 短信。
-  </p>
+如果调制解调器返回类似下面的配置：
 
-  <h2>📍 功能特性</h2>
-  <ul>
-    <li>✔ 正确读取短信（PDU 模式）</li>
-    <li>✔ 支持中文 UCS2 解码</li>
-    <li>✔ 支持长短信（UDH）自动拼接</li>
-    <li>✔ 按时间倒序展示</li>
-    <li>× 支持根据号码 / 关键词搜索（后期有需要可能更新支持）</li>
-  </ul>
+```text
+AT+CNMI?
++CNMI: 3,2,1,1,1
+```
 
-  <hr>
+其中第二个参数 `<mt>=2` 会把新短信直接作为 `+CMT` 推送到当前串口，而不是先
+存入 SIM/模块存储。没有常驻程序监听串口时，这条短信就不会出现在只读取存储区的
+LuCI 页面中。
 
-  <h2>🚀 一键安装</h2>
+本项目采用的存储型配置是：
 
-  <p>运行以下命令可快速安装插件：</p>
+```text
+AT+CNMI=2,1,0,0,0
+```
 
-  <pre><code>sh -c "$(wget -qO- https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/install.sh)"</code></pre>
+此时 `<mt>=1`，新短信写入存储区并通过 `+CMTI` 指示。页面再通过
+`sms_tool -s SM ... recv` 读取即可。Quectel RM500U 系列 AT 手册也将
+`2,1,0,0,0` 列为默认组合，并说明了 `<mt>=1` 与 `<mt>=2` 的差异：
 
-  <p>或：</p>
+- [Quectel RGx00U / RM500U AT Commands Manual V1.0](https://quectel.com/content/uploads/2024/02/Quectel_RGx00URM500U_Series_AT_Commands_Manual_V1.0.pdf)
 
-  <pre><code>sh -c "$(curl -fsSL https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/install.sh)"</code></pre>
+新版页面会显示当前 `CNMI` 状态，提供“一键修复接收模式”按钮；默认启用的开机
+自检只在配置不正确时写入上述参数。
 
-  <p>
-    安装完成后请刷新浏览器 LuCI 页面（建议使用 <strong>Ctrl + F5</strong> 强制刷新缓存）。
-  </p>
+### OpenWrt 24.10 兼容性
 
-  <h2>❌ 卸载插件</h2>
+旧版仓库写入 `/usr/lib/lua/luci/controller` 和 `/usr/lib/lua/luci/view`，依赖旧式
+LuCI Lua 控制器。新版已迁移为：
 
-  <p>若需要移除插件，可运行：</p>
+- `/usr/share/luci/menu.d` 菜单定义；
+- `/www/luci-static/resources/view` LuCI JS 页面；
+- 精确到文件和 UCI 配置的 rpcd ACL；
+- 独立的 `/etc/config/istoreos_sms` 配置；
+- 可选的 procd 开机接收模式自检。
 
-  <pre><code>sh -c "$(wget -qO- https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/uninstall.sh)"</code></pre>
+## 功能
 
-  <p>或：</p>
+- 读取 SIM、模块或组合存储中的短信；
+- 使用 `sms_tool` 解码 GSM 7-bit、UCS2 和长短信分片；
+- 按时间倒序显示并合并完整的长短信；
+- 按号码、时间或正文即时搜索；
+- 持久化串口和存储区配置；
+- 检查并修复会导致“收到了但页面看不到”的 `CNMI` 配置；
+- 不拼接用户输入为 shell 命令，且只授权执行必要文件。
 
-  <pre><code>sh -c "$(curl -fsSL https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/uninstall.sh)"</code></pre>
+## 依赖
 
-  <p>卸载完成后，“短信” 菜单将从 LuCI 界面中消失。</p>
+路由器必须已经安装：
 
-  <h2>🧠 使用说明</h2>
+```text
+sms_tool
+```
 
-  <ol>
-    <li>安装完成后打开 LuCI 管理界面</li>
-    <li>导航路径：<strong>服务 → 短信</strong></li>
-    <li>界面中将显示所有已读取的短信</li>
-    <li>按 <strong>号码 / 关键词</strong>（如：验证码、流量、银行）进行搜索（后期有需要可能更新支持）</li>
-  </ol>
+安装脚本会先检查依赖；缺失时会停止，不会留下半安装状态。
 
-  <h2>⚙️ 配置项（可选）</h2>
+## 安装
 
-  <p>默认串口设备为：</p>
+```sh
+sh -c "$(wget -qO- https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/install.sh)"
+```
 
-  <pre><code>/dev/ttyUSB2</code></pre>
+或：
 
-  <p>如果你的调制解调器使用的是其他串口设备，请执行以下命令进行修改：</p>
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/install.sh)"
+```
 
-  <pre><code>uci set smsfix.main.device='/dev/ttyUSB3'
-uci commit smsfix
-/etc/init.d/uhttpd restart</code></pre>
+从克隆目录安装也可以：
 
-  <h2>📋 技术细节</h2>
+```sh
+sh install.sh
+```
 
-  <ul>
-    <li>使用 <code>sms_tool</code> 读取调制解调器中的短信</li>
-    <li>使用 <code>ucode</code> 脚本解析短信并输出 JSON 数据</li>
-    <li>前端通过 LuCI 调用后端接口并进行渲染展示</li>
-  </ul>
+安装完成后进入：
 
-  <h2>📌 示例预览</h2>
+```text
+LuCI -> 服务 -> 短信（iStoreOS-SMS）
+```
 
-  <img src="assets/sms-ui-preview.png" alt="短信界面预览" style="max-width:100%; border:1px solid #ddd;">
+安装器会优先沿用 `luci-app-sms-tool-js` 已配置的读取串口；否则按设备存在情况选择
+`/dev/ttyUSB3` 或 `/dev/ttyUSB2`。页面中可以随时修改并保存。
 
-  <h2>🧩 兼容性</h2>
+## 手工排障
 
-  <table>
-    <thead>
-      <tr>
-        <th>系统版本</th>
-        <th>支持情况</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>iStoreOS 24.x / 25.x</td>
-        <td>✅ 完全支持</td>
-      </tr>
-      <tr>
-        <td>OpenWrt 22.x / 23.x</td>
-        <td>⚠️ 基本兼容</td>
-      </tr>
-      <tr>
-        <td>必须依赖</td>
-        <td>sms_tool</td>
-      </tr>
-    </tbody>
-  </table>
+将串口替换为实际 AT 端口：
 
-  <h2>📄 License</h2>
+```sh
+sms_tool -d /dev/ttyUSB3 at 'AT+CPMS?'
+sms_tool -d /dev/ttyUSB3 at 'AT+CNMI?'
+sms_tool -s SM -d /dev/ttyUSB3 status
+sms_tool -s SM -d /dev/ttyUSB3 -f '%Y-%m-%d %H:%M:%S' -j recv
+```
 
-  <p>MIT © mikutea</p>
+如果 `AT+CNMI?` 的第二个参数是 `2`，且没有常驻进程接收 `+CMT`，执行：
 
-</body>
-</html>
+```sh
+sms_tool -d /dev/ttyUSB3 at 'AT+CNMI=2,1,0,0,0'
+sms_tool -d /dev/ttyUSB3 at 'AT+CNMI?'
+```
+
+注意：AT 串口通常只能被一个进程占用。执行检查时请避免同时运行 ModemManager、
+另一个短信守护进程或其他串口终端。
+
+## 配置
+
+```sh
+uci set istoreos_sms.main.device='/dev/ttyUSB3'
+uci set istoreos_sms.main.storage='SM'
+uci set istoreos_sms.main.auto_repair='1'
+uci commit istoreos_sms
+/etc/init.d/istoreos_sms enable
+/etc/init.d/istoreos_sms restart
+```
+
+将 `auto_repair` 设为 `0` 可关闭开机检查。
+
+## 卸载与回滚
+
+```sh
+sh -c "$(wget -qO- https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/uninstall.sh)"
+```
+
+默认保留 `/etc/config/istoreos_sms`，方便重新安装。确认要连配置一起删除时：
+
+```sh
+PURGE_CONFIG=1 sh uninstall.sh
+```
+
+卸载不会修改或删除 `luci-app-sms-tool-js`，也不会尝试恢复无法可靠推断的旧
+`CNMI` 参数。
+
+## 验证
+
+仓库包含静态验证，检查 shell 语法、JSON、LuCI 视图语法、菜单映射和安装/卸载
+清单：
+
+```sh
+bash -n install.sh uninstall.sh root/etc/init.d/istoreos_sms \
+  root/usr/libexec/istoreos-sms/ensure-storage.sh
+python tests/validate_repo.py
+node tests/parse-luci-view.mjs
+```
+
+## License
+
+MIT © mikutea
