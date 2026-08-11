@@ -84,6 +84,15 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/mikutea/istoreOS-sms/main/
 sh install.sh
 ```
 
+也可以构建无需 OpenWrt SDK 的 `all` 架构 IPK，再从 LuCI 的软件包页面上传：
+
+```sh
+python scripts/build_ipk.py --output-dir dist
+```
+
+标准 OpenWrt SDK / buildroot 用户可以将仓库作为 LuCI 包目录，使用根目录的
+`Makefile` 构建。
+
 安装完成后进入：
 
 ```text
@@ -152,6 +161,7 @@ bash -n install.sh uninstall.sh root/etc/init.d/istoreos_sms \
   root/usr/libexec/istoreos-sms/ensure-storage.sh
 python tests/validate_repo.py
 node tests/parse-luci-view.mjs
+python scripts/build_ipk.py --output-dir dist
 ```
 
 ## License

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+
+if [ -x /etc/uci-defaults/99-istoreos-sms ]; then
+	/etc/uci-defaults/99-istoreos-sms
+	rm -f /etc/uci-defaults/99-istoreos-sms
+fi
+
+command -v luci-reload >/dev/null 2>&1 && luci-reload >/dev/null 2>&1 || true
+/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+exit 0

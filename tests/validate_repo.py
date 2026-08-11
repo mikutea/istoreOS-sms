@@ -18,7 +18,11 @@ expected_payloads = {
     "root/usr/share/rpcd/acl.d/istoreos-sms.json",
 }
 
-for relative in expected_payloads:
+package_only_payloads = {
+    "root/etc/uci-defaults/99-istoreos-sms",
+}
+
+for relative in expected_payloads | package_only_payloads:
     path = ROOT / relative
     assert path.is_file(), f"missing payload: {relative}"
     assert path.stat().st_size > 0, f"empty payload: {relative}"
@@ -56,5 +60,9 @@ for source in (view, ensure, read("README.md")):
 assert "'-j', 'recv'" in view
 assert "innerHTML" not in view
 assert "rm -f /tmp/luci-*" not in installer
+assert "PKG_NAME:=luci-app-istoreos-sms" in read("Makefile")
+assert "LUCI_DEPENDS:=+sms-tool" in read("Makefile")
+for script in ("postinst", "prerm", "postrm"):
+    assert (ROOT / "packaging" / "ipk" / script).is_file()
 
 print("repository validation: PASS")

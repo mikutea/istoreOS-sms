@@ -124,6 +124,7 @@ configure_uci() {
 
   uci -q get istoreos_sms.main.auto_repair >/dev/null 2>&1 || \
     uci set istoreos_sms.main.auto_repair='1'
+  uci set istoreos_sms.main.initialized='1'
   uci commit istoreos_sms
 }
 

@@ -1,0 +1,37 @@
+#!/bin/sh
+
+uci -q get istoreos_sms.main >/dev/null 2>&1 || uci set istoreos_sms.main='istoreos_sms'
+
+if [ "$(uci -q get istoreos_sms.main.initialized 2>/dev/null)" != '1' ]; then
+	device="$(uci -q get sms_tool_js.@sms_tool_js[0].readport 2>/dev/null || true)"
+	case "$device" in
+		/dev/ttyUSB*|/dev/ttyACM*|/dev/ttyS*|/dev/mhi_*|/dev/wwan*) ;;
+		*)
+			device=''
+			for candidate in /dev/ttyUSB3 /dev/ttyUSB2 /dev/ttyUSB1 /dev/ttyACM0; do
+				if [ -e "$candidate" ]; then
+					device="$candidate"
+					break
+				fi
+			done
+			[ -n "$device" ] || device='/dev/ttyUSB2'
+			;;
+	esac
+	uci set istoreos_sms.main.device="$device"
+
+	storage="$(uci -q get sms_tool_js.@sms_tool_js[0].storage 2>/dev/null || true)"
+	case "$storage" in
+		SM|ME|MT) ;;
+		*) storage='SM' ;;
+	esac
+	uci set istoreos_sms.main.storage="$storage"
+	uci set istoreos_sms.main.auto_repair='1'
+	uci set istoreos_sms.main.initialized='1'
+	uci commit istoreos_sms
+fi
+
+/etc/init.d/istoreos_sms enable >/dev/null 2>&1 || true
+/etc/init.d/istoreos_sms start >/dev/null 2>&1 || true
+rm -f /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null || true
+
+exit 0

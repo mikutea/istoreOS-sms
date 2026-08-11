@@ -8,3 +8,7 @@ root/usr/libexec/* text eol=lf
 *.py text eol=lf
 *.yml text eol=lf
 *.md text eol=lf
+Makefile text eol=lf
+root/etc/config/* text eol=lf
+root/etc/uci-defaults/* text eol=lf
+packaging/ipk/* text eol=lf
