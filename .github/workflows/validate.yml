@@ -22,8 +22,12 @@ jobs:
         run: |
           bash -n install.sh uninstall.sh
           bash -n root/etc/init.d/istoreos_sms
+          bash -n root/etc/uci-defaults/99-istoreos-sms
           bash -n root/usr/libexec/istoreos-sms/ensure-storage.sh
+          bash -n packaging/ipk/postinst packaging/ipk/prerm packaging/ipk/postrm
       - name: Validate repository contract
         run: python tests/validate_repo.py
       - name: Parse LuCI view
         run: node tests/parse-luci-view.mjs
+      - name: Build installable IPK
+        run: python scripts/build_ipk.py --output-dir dist
