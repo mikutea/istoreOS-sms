@@ -1,0 +1,14 @@
+{
+	"admin/services/istoreos-sms": {
+		"title": "短信（iStoreOS-SMS）",
+		"order": 65,
+		"action": {
+			"type": "view",
+			"path": "services/istoreos-sms"
+		},
+		"depends": {
+			"acl": [ "luci-app-istoreos-sms" ],
+			"uci": { "istoreos_sms": true }
+		}
+	}
+}

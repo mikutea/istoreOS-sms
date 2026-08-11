@@ -1,0 +1,29 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate shell syntax
+        run: |
+          bash -n install.sh uninstall.sh
+          bash -n root/etc/init.d/istoreos_sms
+          bash -n root/usr/libexec/istoreos-sms/ensure-storage.sh
+      - name: Validate repository contract
+        run: python tests/validate_repo.py
+      - name: Parse LuCI view
+        run: node tests/parse-luci-view.mjs

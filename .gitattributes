@@ -1,0 +1,10 @@
+* text=auto
+*.sh text eol=lf
+root/etc/init.d/* text eol=lf
+root/usr/libexec/* text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.md text eol=lf

@@ -1,0 +1,20 @@
+{
+	"luci-app-istoreos-sms": {
+		"description": "Grant access to the iStoreOS-SMS LuCI application",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/bin/sms_tool": [ "exec" ],
+				"/etc/init.d/istoreos_sms": [ "exec" ]
+			},
+			"uci": [ "istoreos_sms" ]
+		},
+		"write": {
+			"file": {
+				"/usr/bin/sms_tool": [ "exec" ],
+				"/etc/init.d/istoreos_sms": [ "exec" ]
+			},
+			"uci": [ "istoreos_sms" ]
+		}
+	}
+}
