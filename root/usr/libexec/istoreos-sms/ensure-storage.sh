@@ -14,33 +14,36 @@ esac
 
 attempt=0
 while [ "$attempt" -lt 12 ]; do
-	[ -e "$DEVICE" ] && break
+	if [ -e "$DEVICE" ]; then
+		current="$(sms_tool -d "$DEVICE" at 'AT+CNMI?' 2>&1 || true)"
+		compact="$(printf '%s' "$current" | tr -d ' \r\n')"
+		case "$compact" in
+			*'+CNMI:2,1,0,0,0'*)
+				logger -t "$TAG" "CNMI 已是存储型接收模式：$DEVICE"
+				exit 0
+				;;
+		esac
+
+		case "$compact" in
+			*'+CNMI:'*)
+				result="$(sms_tool -d "$DEVICE" at 'AT+CNMI=2,1,0,0,0' 2>&1 || true)"
+				case "$result" in
+					*OK*)
+						logger -t "$TAG" "已将 CNMI 修复为 2,1,0,0,0：$DEVICE"
+						exit 0
+						;;
+				esac
+				;;
+		esac
+	fi
+
 	attempt=$((attempt + 1))
-	sleep 5
+	[ "$attempt" -lt 12 ] && sleep 5
 done
 
 if [ ! -e "$DEVICE" ]; then
 	logger -t "$TAG" "等待 60 秒后仍未发现串口：$DEVICE"
-	exit 1
+else
+	logger -t "$TAG" "等待 60 秒后仍无法确认或修复 CNMI：$DEVICE"
 fi
-
-current="$(sms_tool -d "$DEVICE" at 'AT+CNMI?' 2>&1 || true)"
-compact="$(printf '%s' "$current" | tr -d ' \r\n')"
-case "$compact" in
-	*'+CNMI:2,1,0,0,0'*)
-		logger -t "$TAG" "CNMI 已是存储型接收模式：$DEVICE"
-		exit 0
-		;;
-esac
-
-result="$(sms_tool -d "$DEVICE" at 'AT+CNMI=2,1,0,0,0' 2>&1 || true)"
-case "$result" in
-	*OK*)
-		logger -t "$TAG" "已将 CNMI 修复为 2,1,0,0,0：$DEVICE"
-		exit 0
-		;;
-	*)
-		logger -t "$TAG" "CNMI 修复失败：$DEVICE"
-		exit 1
-		;;
-esac
+exit 1
